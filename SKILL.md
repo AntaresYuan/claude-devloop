@@ -8,6 +8,14 @@ description: >-
   stops. Invoke when the user says things like "work through these issues", "run the loop", "knock
   out the backlog", "do all the doable issues" — especially if they want it to run while they're
   away. NOT for one-off single tasks (just do those directly).
+iteration:
+  enabled: true
+  skill_repo: AntaresYuan/claude-devloop
+  threshold: 3
+  artifacts:
+    friction_log: ./LOOP-FRICTION.jsonl
+    run_log: ./LOOP-LOG.md
+  state_file: ./.iteration-state.json
 ---
 
 # devloop — autonomous dev loop
@@ -133,7 +141,67 @@ top of the turn and reason from the real state.
 
 - Append a "Loop complete" section to `LOOP-LOG.md`: a short summary + all PR/commit links + what's
   still on the user (with the *why* for each). Commit + push.
+- Hand off to `/iterate` for retrospective analysis (see §7 below). This runs BEFORE the final
+  user message so the message can reference the RETRO file + any auto-opened PRs.
 - Post a final user-facing message: what shipped (with PR numbers), what still needs them (and why),
   housekeeping (permission mode they can revert, the allowlist — note if it's global, any temp
-  files / the LOOP-LOG that can be deleted).
+  files / the LOOP-LOG that can be deleted), and pointers to the RETRO report + any iteration
+  PRs `/iterate` opened.
 - **Stop. Do not ScheduleWakeup again.**
+
+## 6. Friction logging during the run
+
+Throughout the loop, append one JSON line per friction event to `LOOP-FRICTION.jsonl` at the
+working repo root. This feeds `/iterate` (§7). Init at start of loop:
+`touch <repo>/LOOP-FRICTION.jsonl`.
+
+**When to log (and the `type`):**
+
+| When | `type` | Notes |
+|---|---|---|
+| A bash command hits a permission prompt | `permission_blocked` | log even if user approves inline |
+| Same command blocked ≥2× in one run | `permission_thrash` | indicates real allowlist gap |
+| A command had to retry (build failure, network, etc.) | `retry` | include `attempts` + `reason` |
+| ScheduleWakeup undershot a deploy / CI wait | `pacing_mismatch` | include `scheduled_wait_s` vs `actual_ready_s` |
+| Sub-agent reviewer rejected ≥2 cycles on one PR | `subagent_flag_persistent` | include cycle count |
+| `git log` showed unexpected state vs a STATE: claim | `unexpected_state` | log assumption vs actual |
+| A STOP condition fired (see §4) | `stop_condition_hit` | include which one |
+| A `deny:` rule blocked a destructive command you didn't mean to fire | `safety_intentional` | **inverse of friction** — flags the guardrail working as designed; `/iterate` won't propose relaxing it |
+
+**Format** (one line per event):
+
+```jsonl
+{"ts": "2026-05-13T16:42:11Z", "run_id": "<this-loop-id>", "task": "issue-42", "type": "pacing_mismatch", "details": {"step": "deploy_verify", "scheduled_wait_s": 150, "actual_ready_s": 245}, "lesson_hint": "Default 150s undershoots this repo's deploy"}
+```
+
+**How to append** (one of the allowed bash patterns — single command starting with `cat`,
+no compound):
+
+```
+cat >> /abs/path/to/repo/LOOP-FRICTION.jsonl <<'EOF'
+{"ts": "...", "run_id": "...", "task": "...", "type": "...", "details": {...}, "lesson_hint": "..."}
+EOF
+```
+
+Generate `run_id` once at loop start (e.g. timestamp-based) and reuse for every event in this
+run. Keep `lesson_hint` short and concrete — that's what /iterate's analyzer reads as a
+human-authored hypothesis.
+
+## 7. Iteration handoff (`/iterate`)
+
+After §5 (Loop complete written, before the final user message), invoke `/iterate devloop`.
+
+The `/iterate` meta-skill reads this skill's `iteration:` frontmatter to know where the
+artifacts are, runs a retrospective sub-agent over `LOOP-FRICTION.jsonl` + `LOOP-LOG.md` +
+recent git history, produces a `RETRO-<YYYY-MM-DD>.md` in the working repo, accumulates
+friction counts in `.iteration-state.json` across runs, and — when a class crosses
+`threshold` (default `3`) — opens a PR to `AntaresYuan/claude-devloop` with a proposed
+`SKILL.md` diff backed by friction evidence.
+
+**`/iterate` never auto-merges** and **never proposes weakening safety entries** (deny list,
+hooks, force-push protections). PRs are for human review.
+
+If `~/.claude/skills/iterate/` is not installed, skip the handoff silently — `LOOP-FRICTION.jsonl`
+just keeps accumulating for the next time `/iterate` is available. Note the missing iteration
+in the final user message so they can install it: `git clone
+https://github.com/AntaresYuan/claude-skill-iterate ~/.claude/skills/iterate`.

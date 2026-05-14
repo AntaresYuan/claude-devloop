@@ -77,6 +77,26 @@ This skill exists to run **unattended with broad auto-approval**. That means:
 - Skim what it did afterward — the `LOOP-LOG.md` is the play-by-play, and the PRs have the diffs +
   review summaries.
 
+## Self-iteration (opt-in)
+
+`/devloop` is integrated with [`/iterate`](https://github.com/AntaresYuan/claude-skill-iterate),
+a meta-skill that improves skills based on their own runs. While the loop runs, devloop appends
+friction events (permission prompts, retries, pacing mismatches, persistent sub-agent
+rejections, etc.) to a `LOOP-FRICTION.jsonl` file in the working repo. When the queue is
+exhausted, devloop auto-hands-off to `/iterate`, which produces a `RETRO-<date>.md` report and
+— when the same friction class has recurred ≥3 times across runs — opens a PR to this skill's
+own repo with a proposed `SKILL.md` diff backed by the evidence.
+
+`/iterate` **never auto-merges** and **never proposes weakening safety designs** (deny entries,
+hook bypass, force-push). PRs land for human review.
+
+To enable, install `/iterate`:
+```bash
+git clone https://github.com/AntaresYuan/claude-skill-iterate ~/.claude/skills/iterate
+```
+If `/iterate` is not installed, devloop runs unchanged; the friction log just accumulates for
+the next time it is available.
+
 ## Where this came from
 
 Built (and battle-tested) running an unattended dev loop on a real project — a personal site —
