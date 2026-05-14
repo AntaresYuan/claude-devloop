@@ -84,6 +84,30 @@ For each task in the queue, in order:
    has one — `feat/` / `fix/` / `perf/` / etc.).
 3. **Implement** in small steps. Read the surrounding code first; match its conventions, comment
    density, naming, idioms.
+
+   **For visual / sizing / layout decisions, don't ship blind.** Cell sizes, font sizes, padding,
+   row densities, color choices, motion — anything where "right" is taste-dependent — should go
+   through AskUserQuestion with 2–3 mockup options (ASCII art in the option's `preview`, named
+   ranges like "tight / balanced / generous", or annotated diffs) **before** shipping the first
+   version. The operator's eye knows their site's vibe better than your intuition; you save the
+   iteration tail by collapsing what would be 3+ revision PRs into one informed pick. Heuristic:
+   if you find yourself revising the same visual property across 3 consecutive PRs (cell size
+   12→14→16, padding 8→12→16, etc.), you skipped this step — stop, ask, pick once.
+
+   **For user-visible aggregate metrics, sanity-grep before shipping.** Any number that lands on
+   a public surface (dashboard totals, count stats, headline KPIs): pause and check it against
+   intuition. "A human cannot reasonably hit X in a Y window" is a real review gate. If the
+   operator has shown a reference tool earlier in the session (a screenshot, third-party CLI
+   output, "ccusage says I'm at N"), grep back for it and compare — that's your calibration
+   anchor. Shipping a metric that's off by 10×–100× from a reference the operator already showed
+   you is the most-caught-by-user bug class.
+
+   **DOM mutation lifecycle.** If render code does `el.innerHTML = newHtml` on a container that
+   accumulates state over time, anything appended to that container (tooltips, overlays,
+   observers, listeners) is silently lost on the next render pass. Audit before assuming the
+   side-channel survives. Sub-agent review (§9, read-only) cannot catch this — it requires
+   tracing dynamic state, which only the author sees while coding.
+
 4. **Build & test hard.** Run the build — it must pass AND be idempotent (run it twice; no diff on
    the second run). `node -c` (or the equivalent lint) any new/changed source files. Grep the built
    output for the markup/strings you expect. Run the test suite if there is one. Goal: "force no
